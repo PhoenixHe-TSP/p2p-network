@@ -30,8 +30,6 @@ int main(int argc, char **argv) {
 
   bt_init(&config, argc, argv);
 
-  DPRINTF(DEBUG_INIT, "peer.c main beginning\n");
-
 #ifdef TESTING
   config.identity = 1; // your group number here
   strcpy(config.chunk_file, "chunkfile");
@@ -39,6 +37,8 @@ int main(int argc, char **argv) {
 #endif
 
   bt_parse_command_line(&config);
+
+  DPRINTF(DEBUG_INIT, "peer.c main beginning\n");
 
 #ifdef DEBUG
   if (debug & DEBUG_INIT) {
@@ -68,8 +68,9 @@ void process_inbound_udp(int sock) {
 }
 
 void process_get(char *chunkfile, char *outputfile) {
-  printf("PROCESS GET SKELETON CODE CALLED.  Fill me in!  (%s, %s)\n",
-         chunkfile, outputfile);
+//  printf("PROCESS GET SKELETON CODE CALLED.  Fill me in!  (%s, %s)\n",
+//         chunkfile, outputfile);
+
 }
 
 void handle_user_input(char *line, void *cbdata) {
@@ -82,6 +83,8 @@ void handle_user_input(char *line, void *cbdata) {
     if (strlen(outf) > 0) {
       process_get(chunkf, outf);
     }
+  } else {
+    printf("Unknown command.\n");
   }
 }
 

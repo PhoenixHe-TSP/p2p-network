@@ -7,7 +7,7 @@
 #ifdef DEBUG
 extern unsigned int debug;
 #define DPRINTF(level, fmt, args...) \
-        do { if (debug & (level)) fprintf(stderr, fmt , ##args ); } while(0)
+        do {if (debug & (level)) fprintf(stderr, __FILE__ "(%d) " fmt , __LINE__, ##args );} while(0)
 #define DEBUG_PERROR(errmsg) \
         do { if (debug & DEBUG_ERRS) perror(errmsg); } while(0)
 #else

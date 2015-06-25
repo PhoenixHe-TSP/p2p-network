@@ -1,7 +1,11 @@
 cmake_minimum_required(VERSION 3.2)
 project(network)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "/home/htc/dev/p2p-network/test")
+set(GCC_COVERAGE_COMPILE_FLAGS "-Wall -m32 -DDEBUG")
+set(GCC_COVERAGE_LINK_FLAGS    "-lm")
+set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} ${GCC_COVERAGE_COMPILE_FLAGS}" )
+set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_COVERAGE_LINK_FLAGS}" )
 
 set(SOURCE_FILES
     starter_code/bt_parse.c
@@ -11,9 +15,5 @@ set(SOURCE_FILES
     starter_code/chunk.c
     starter_code/sha.c)
 
+add_executable(peer starter_code/peer.c ${SOURCE_FILES} starter_code/task.h starter_code/task.c)
 
-add_executable(peer starter_code/peer.c ${SOURCE_FILES})
-
-add_executable(make-chunks starter_code/make_chunks.c starter_code/chunk.c starter_code/sha.c)
-
-add_executable(test-input-buffer starter_code/test_input_buffer.c starter_code/input_buffer.c)
