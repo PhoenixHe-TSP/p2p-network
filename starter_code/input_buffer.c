@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <strings.h>
 #include "input_buffer.h"
 
 struct user_iobuf *create_userbuf() {

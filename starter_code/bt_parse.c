@@ -8,6 +8,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <getopt.h>
+#include <strings.h>
 #include "bt_parse.h"
 #include "debug.h"
 
@@ -136,7 +138,7 @@ void bt_parse_peer_list(bt_config_t *config) {
 
     host = gethostbyname(hostname);
     assert(host != NULL);
-    node->addr.sin_addr.s_addr = *(in_addr_t *) host->h_addr;
+    node->addr.sin_addr.s_addr = *(in_addr_t *) host->h_addr_list[0];
     node->addr.sin_family = AF_INET;
     node->addr.sin_port = htons(port);
 

@@ -15,38 +15,45 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <sys/time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <sys/select.h>
 #include "debug.h"
 #include "spiffy.h"
 #include "bt_parse.h"
 #include "input_buffer.h"
+#include "data.h"
 
 void peer_run(bt_config_t *config);
 
-int main(int argc, char **argv) {
-  bt_config_t config;
+bt_config_t peer_config;
 
-  bt_init(&config, argc, argv);
+int main(int argc, char **argv) {
+
+  bt_init(&peer_config, argc, argv);
 
 #ifdef TESTING
   config.identity = 1; // your group number here
-  strcpy(config.chunk_file, "chunkfile");
-  strcpy(config.has_chunk_file, "haschunks");
+  strcpy(peer_config.chunk_file, "chunkfile");
+  strcpy(peer_config.has_chunk_file, "haschunks");
 #endif
 
-  bt_parse_command_line(&config);
+  bt_parse_command_line(&peer_config);
 
   DPRINTF(DEBUG_INIT, "peer.c main beginning\n");
 
 #ifdef DEBUG
   if (debug & DEBUG_INIT) {
-    bt_dump_config(&config);
+    bt_dump_config(&peer_config);
   }
 #endif
 
-  peer_run(&config);
+  data_init();
+
+  peer_run(&peer_config);
   return 0;
 }
 
@@ -117,12 +124,15 @@ void peer_run(bt_config_t *config) {
 
   spiffy_init(config->identity, (struct sockaddr *) &myaddr, sizeof(myaddr));
 
+  struct timeval timeout;
+  timeout.tv_sec = 1;
+  timeout.tv_usec = 0;
   while (1) {
     int nfds;
     FD_SET(STDIN_FILENO, &readfds);
     FD_SET(sock, &readfds);
 
-    nfds = select(sock + 1, &readfds, NULL, NULL, NULL);
+    nfds = select(sock + 1, &readfds, NULL, NULL, &timeout);
 
     if (nfds > 0) {
       if (FD_ISSET(sock, &readfds)) {

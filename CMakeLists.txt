@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.2)
 project(network)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "/home/htc/dev/p2p-network/test")
-set(GCC_COVERAGE_COMPILE_FLAGS "-Wall -m32 -DDEBUG")
+set(GCC_COVERAGE_COMPILE_FLAGS "-Wall -m32 -DDEBUG -std=c11")
 set(GCC_COVERAGE_LINK_FLAGS    "-lm")
 set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} ${GCC_COVERAGE_COMPILE_FLAGS}" )
 set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_COVERAGE_LINK_FLAGS}" )
@@ -15,5 +15,5 @@ set(SOURCE_FILES
     starter_code/chunk.c
     starter_code/sha.c)
 
-add_executable(peer starter_code/peer.c ${SOURCE_FILES} starter_code/task.h starter_code/task.c)
+add_executable(peer starter_code/peer.c ${SOURCE_FILES} starter_code/task.h starter_code/task.c starter_code/data.h starter_code/data.c starter_code/peer.h starter_code/uthash.h)
 
