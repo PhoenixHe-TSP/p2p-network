@@ -16,6 +16,7 @@ set(SOURCE_FILES
     starter_code/timeout.c
     starter_code/priority_queue.c
     starter_code/bt_io.c
+    starter_code/flow.c
     starter_code/sha.c)
 
 add_executable(peer starter_code/peer.c ${SOURCE_FILES} starter_code/task.h starter_code/task.c starter_code/data.h starter_code/data.c starter_code/peer.h starter_code/uthash.h)

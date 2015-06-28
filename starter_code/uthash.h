@@ -73,6 +73,8 @@ typedef unsigned char uint8_t;
 #include <stdint.h>
 #endif
 
+#include <stddef.h>
+
 #define UTHASH_VERSION 1.9.9
 
 #ifndef uthash_fatal

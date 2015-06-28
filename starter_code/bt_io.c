@@ -5,6 +5,7 @@
 #include <arpa/inet.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <stddef.h>
 #include "bt_io.h"
 #include "peer.h"
 #include "uthash.h"
@@ -21,12 +22,17 @@ struct io_peer {
   UT_hash_handle hh_addr;
 } *peers_id = NULL, *peers_addr = NULL;
 
+static int max_id = 0;
+
 void bt_io_init() {
   struct bt_peer_s* p = peer_config.peers;
   while (p) {
     struct io_peer* peer = malloc(sizeof(struct io_peer));
     peer->id = p->id;
     memcpy(&peer->addr, &p->addr, sizeof(struct sockaddr_in));
+    if (peer->id > max_id) {
+      max_id = peer->id;
+    }
 
     HASH_ADD(hh_id, peers_id, id, sizeof(int), peer);
     HASH_ADD(hh_addr, peers_addr, addr, sizeof(struct sockaddr_in), peer);
@@ -55,11 +61,18 @@ int parse_packet(struct sockaddr_in* addr, char* raw, struct packet_header* head
   struct io_peer *peer = NULL;
   HASH_FIND(hh_addr, peers_addr, addr, sizeof(struct sockaddr_in), peer);
   if (peer == NULL) {
-    fprintf(stderr, "Unknown peer from %s:%d\n",
+    peer = malloc(sizeof(struct io_peer));
+    peer->id = ++max_id;
+    memcpy(&peer->addr, addr, sizeof(struct sockaddr_in));
+
+    HASH_ADD(hh_id, peers_id, id, sizeof(int), peer);
+    HASH_ADD(hh_addr, peers_addr, addr, sizeof(struct sockaddr_in), peer);
+
+    DPRINTF(DEBUG_SOCKETS, "New peer from %s:%d <- %d\n",
            inet_ntoa(addr->sin_addr),
-           ntohs(addr->sin_port));
-    return -1;
+           ntohs(addr->sin_port), peer->id);
   }
+
   int peer_id = peer->id;
 
   memcpy(header, raw, sizeof(struct packet_header));
@@ -78,7 +91,7 @@ int parse_packet(struct sockaddr_in* addr, char* raw, struct packet_header* head
   return peer_id;
 }
 
-int send_packet(int peer_id, int type, int seq, int ack, char* body, int body_len) {
+int send_packet(int peer_id, int sockfd, int type, int seq, int ack, char* body, int body_len) {
   DPRINTF(DEBUG_SOCKETS, "send packet to peer:%d type:%d seq:%d ack:%d body_len:%d\n",
           peer_id, type, seq, ack, body_len);
 
@@ -102,10 +115,23 @@ int send_packet(int peer_id, int type, int seq, int ack, char* body, int body_le
 
   memcpy(data + sizeof(struct packet_header), body, (size_t) body_len);
 
-  int ret = spiffy_sendto(peer_sockfd, data, sizeof(data), MSG_NOSIGNAL, (const struct sockaddr *) &peer->addr, sizeof(struct sockaddr_in));
+  int ret = spiffy_sendto(sockfd, data, sizeof(data), MSG_NOSIGNAL, (const struct sockaddr *) &peer->addr, sizeof(struct sockaddr_in));
   if (ret == -1) {
     DEBUG_PERROR("Cannot send packet\n");
   }
 
   return ret;
+}
+
+int free_peer_id(int peer_id) {
+  struct io_peer *peer;
+  HASH_FIND(hh_id, peers_id, &peer_id, sizeof(int), peer);
+  if (peer == NULL) {
+    fprintf(stderr, "Try to free id %d but doesn't exist\n", peer_id);
+    return -1;
+  }
+
+  HASH_DELETE(hh_id, peers_id, peer);
+  HASH_DELETE(hh_addr, peers_addr, peer);
+  return 0;
 }

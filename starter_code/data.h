@@ -10,9 +10,9 @@
 
 void data_init();
 
-void data_load_chunk(char* chunk_hash, char* dest);
+int data_load_chunk(char* hash, char* dest);
 
-void data_save_chunk(char* chunk_hash, char* data);
+int data_save_chunk(char* hash, char* data);
 
 int data_request_chunks(int chunk_n, char* required, char* out);
 

@@ -19,6 +19,7 @@ void response_i_have(int peer_id, char *body);
 
 void handle_i_have(int peer_id, char *body);
 
+void handle_get(int peer_id, char *body);
 
 #endif //NETWORK_TASK_H
 

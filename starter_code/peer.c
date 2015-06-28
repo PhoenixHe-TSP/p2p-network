@@ -24,6 +24,7 @@
 #include "timeout.h"
 #include "task.h"
 #include "bt_io.h"
+#include "flow.h"
 
 void peer_run(bt_config_t *config);
 
@@ -82,6 +83,16 @@ void process_inbound_udp(int sock) {
 
     case PACKET_IHAVE:
       handle_i_have(peer_id, data);
+      break;
+
+    case PACKET_GET:
+      handle_get(peer_id, data);
+      break;
+
+    case PACKET_ACK:
+    case PACKET_DATA:
+    case PACKET_DENIED:
+      new_packet(peer_id, &header, data);
       break;
 
     default:
