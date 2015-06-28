@@ -52,6 +52,7 @@ int main(int argc, char **argv) {
 
   data_init();
   timeout_init();
+  task_init();
   bt_io_init();
 
   peer_run(&peer_config);

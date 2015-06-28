@@ -2,6 +2,9 @@
 // Created by htc on 15-6-25.
 //
 
+#include <stddef.h>
+#include <unistd.h>
+#include <stdint.h>
 #include "task.h"
 #include "bt_io.h"
 #include "peer.h"
@@ -9,14 +12,23 @@
 #include "data.h"
 #include "debug.h"
 #include "timeout.h"
+#include "uthash.h"
+#include "utarray.h"
 
 struct task_chunk {
   struct task_file* file_task;
   int status;
-  int peer_id;
   int chunk_n;
   char hash[SHA1_HASH_SIZE];
+  UT_array peers;
+  UT_hash_handle hh;
 };
+
+struct task_chunks {
+  char hash[SHA1_HASH_SIZE];
+  struct task_chunk *tasks;
+  UT_hash_handle hh;
+} *task_chunks_all = NULL;
 
 struct task_file {
   int fd;
@@ -24,6 +36,7 @@ struct task_file {
   int n_chunks;
   int n_waiting_rsp;
   int n_downloading;
+  int n_done;
   struct task_chunk* chunk_tasks;
 };
 
@@ -41,19 +54,68 @@ struct task_peer_who_has_info {
   struct task_file* task_file;
 };
 
+struct peer_status {
+  int peer_id;
+  UT_array pending_requests;
+  UT_hash_handle hh;
+} *peers_all = NULL;
+
+void task_init() {
+  bt_peer_t *peer = peer_config.peers;
+  while (peer) {
+    struct peer_status *ps = malloc(sizeof(struct peer_status));
+    ps->peer_id = peer->id;
+    utarray_init(&ps->pending_requests, &ut_ptr_icd);
+    HASH_ADD_INT(peers_all, peer_id, ps);
+
+    peer = peer->next;
+  }
+}
+
+void free_task_file(struct task_file* task) {
+  for (int i = 0; i < task->n_chunks; ++i) {
+    struct task_chunk *chunk_task = task->chunk_tasks + i;
+    utarray_done(&chunk_task->peers);
+
+    struct task_chunks *task_chunks;
+    HASH_FIND(hh, task_chunks_all, &chunk_task->hash, SHA1_HASH_SIZE, task_chunks);
+    HASH_DEL(task_chunks->tasks, chunk_task);
+    if (task_chunks->tasks == NULL) {
+      HASH_DEL(task_chunks_all, task_chunks);
+    }
+  }
+  close(task->fd);
+  free(task);
+}
+
+void free_task_peer_who_has_info(struct task_peer_who_has_info *info) {
+  struct peer_status *ps;
+  HASH_FIND_INT(peers_all, &info->peer_id, ps);
+  int len = utarray_len(&ps->pending_requests);
+  for (int i = 0; i < len; ++i) {
+    struct task_peer_who_has_info **x = (struct task_peer_who_has_info **) utarray_eltptr(&ps->pending_requests, i);
+    if (*x == info) {
+      *x = NULL;
+      break;
+    }
+  }
+
+  free(info);
+}
+
 void task_peer_who_has_timeout(struct task_peer_who_has_info *info) {
   if (info->status) {
-    free(info);
+    free_task_peer_who_has_info(info);
     return;
   }
 
   struct task_file *task_file = info->task_file;
   if (++info->n_try > 3) {
     fprintf(stderr, "peer %d not responding\n", info->peer_id);
-    free(info);
+    free_task_peer_who_has_info(info);
     if ((--task_file->n_waiting_rsp) == 0 && task_file->n_downloading == 0) {
       printf("GET failed: cannot download any piece of file.\n");
-      free(task_file);
+      free_task_file(task_file);
     }
     return;
   }
@@ -85,6 +147,11 @@ void init_file_broadcast(struct task_file *task_file) {
       info->task_file = task_file;
       info->timout_msec = 1000;
       info->n_try = 0;
+
+      struct peer_status *ps;
+      HASH_FIND_INT(peers_all, &info->peer_id, ps);
+      utarray_push_back(&ps->pending_requests, &info);
+
       task_peer_who_has_timeout(info);
     }
     peer = peer->next;
@@ -100,6 +167,8 @@ void new_file_task(char* chunkfile, char* outputfile) {
 
   struct task_file *task_file = malloc(sizeof(struct task_file));
   task_file->n_waiting_rsp = 0;
+  task_file->n_downloading = 0;
+  task_file->n_done = 0;
   task_file->fd = open(outputfile, O_CREAT | O_WRONLY);
   if (task_file->fd == -1) {
     perror("Cannot open output file");
@@ -121,6 +190,17 @@ void new_file_task(char* chunkfile, char* outputfile) {
     chunk->chunk_n = i;
     chunk->status = 0;
     hex2binary(hash, strlen(hash), (uint8_t *) chunk->hash);
+    utarray_init(&chunk->peers, &ut_int_icd);
+
+    struct task_chunks *task_chunks_p;
+    HASH_FIND(hh, task_chunks_all, chunk->hash, SHA1_HASH_SIZE, task_chunks_p);
+    if (task_chunks_p == NULL) {
+      task_chunks_p = malloc(sizeof(struct task_chunks));
+      task_chunks_p->tasks = NULL;
+      memcpy(task_chunks_p->hash, chunk->hash, SHA1_HASH_SIZE);
+      HASH_ADD(hh, task_chunks_all, hash, SHA1_HASH_SIZE, task_chunks_p);
+    }
+    HASH_ADD(hh, task_chunks_p->tasks, file_task, sizeof(void*), chunk);
   }
 
   init_file_broadcast(task_file);
@@ -131,17 +211,39 @@ void response_i_have(int peer_id, char *body) {
   char data[n * SHA1_HASH_SIZE + sizeof(int)];
 
   int ret = data_request_chunks(n, body + sizeof(int), data + sizeof(int));
-  if (ret == 0) {
-    return;
-  }
-  *((int*)data) = ret;
+  *((uint32_t*)data) = htonl((uint32_t) ret);
 
   DPRINTF(DEBUG_PROCESSES, "Response to peer %d : IHAVE %d blocks\n", peer_id, ret);
   send_packet(peer_id, PACKET_IHAVE, -1, -1, data, sizeof(data));
 }
 
 void handle_i_have(int peer_id, char *body) {
+  struct peer_status *ps;
+  HASH_FIND_INT(peers_all, &peer_id, ps);
+  int len = utarray_len(&ps->pending_requests);
+  for (int i = 0; i < len; ++i) {
+    struct task_peer_who_has_info **x = (struct task_peer_who_has_info **) utarray_eltptr(&ps->pending_requests, i);
+    if (*x == NULL) {
+      continue;
+    }
+    (*x)->status = 1;
+  }
+  utarray_clear(&ps->pending_requests);
+
+  int n = ntohl(*((uint32_t*) body));
+  body += sizeof(uint32_t);
+  for (int i = 0; i < n; ++i) {
+    char* hash = body + i * SHA1_HASH_SIZE;
+
+    struct task_chunks *task_chunks_p;
+    HASH_FIND(hh, task_chunks_all, hash, SHA1_HASH_SIZE, task_chunks_p);
+    if (task_chunks_p == NULL) {
+      continue;
+    }
+    struct task_chunk *chunk, *tmp;
+    HASH_ITER(hh, task_chunks_p->tasks, chunk, tmp) {
+      utarray_push_back(&chunk->peers, &peer_id);
+      printf("now can download one block from peer %d\n", peer_id);
+    }
+  }
 }
-
-
-

@@ -11,6 +11,8 @@
 #include <string.h>
 #include "sha.h"
 
+void task_init();
+
 void new_file_task(char* chunkfile, char* outputfile);
 
 void response_i_have(int peer_id, char *body);
