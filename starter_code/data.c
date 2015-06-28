@@ -4,13 +4,13 @@
 
 #include <stdio.h>
 #include "data.h"
-#include "bt_parse.h"
 #include "sha.h"
 #include "uthash.h"
 #include "debug.h"
+#include "chunk.h"
 
 struct chunk_data {
-  char hash[SHA1_HASH_SIZE + 1];
+  char hash[SHA1_HASH_SIZE];
   int global_id;
   UT_hash_handle hh;
 } *chunks = NULL;
@@ -33,22 +33,20 @@ void data_init() {
 
     struct chunk_data* chunk = malloc(sizeof(struct chunk_data));
     chunk->global_id = chunk_n;
-    strncpy(chunk->hash, buf, SHA1_HASH_SIZE + 1);
+    hex2binary(buf, strlen(buf), (uint8_t *) chunk->hash);
     DPRINTF(DEBUG_INIT, "add chunk: %d %s\n", chunk_n, buf);
-    HASH_ADD_STR(chunks, hash, chunk);
+    HASH_ADD(hh, chunks, hash, SHA1_HASH_SIZE,chunk);
   }
 }
 
-void data_request_chunks(int chunk_n, char* required, int* out_n, char* out) {
-  *out_n = 0;
-  int i;
-  for (i = 0; i < chunk_n; ++i) {
-    char hash[SHA1_HASH_SIZE + 1];
-    strncpy(hash, required + i * SHA1_HASH_SIZE, SHA1_HASH_SIZE + 1);
+int data_request_chunks(int chunk_n, char* required, char* out) {
+  int ret = 0;
+  for (int i = 0; i < chunk_n; ++i) {
     struct chunk_data *chunk = NULL;
-    HASH_FIND_STR(chunks, hash, chunk);
+    HASH_FIND(hh, chunks, required + i * SHA1_HASH_SIZE, SHA1_HASH_SIZE, chunk);
     if (chunk != NULL) {
-      strcpy(out + (*out_n++)*SHA1_HASH_SIZE, hash);
+      memcpy(out + (ret++) * SHA1_HASH_SIZE, required + i * SHA1_HASH_SIZE, SHA1_HASH_SIZE);
     }
   }
+  return ret;
 }

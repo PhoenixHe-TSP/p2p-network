@@ -14,6 +14,6 @@ void data_load_chunk(char* chunk_hash, char* dest);
 
 void data_save_chunk(char* chunk_hash, char* data);
 
-void data_request_chunks(int chunk_n, char* required, int* out_n, char* out);
+int data_request_chunks(int chunk_n, char* required, char* out);
 
 #endif //NETWORK_DATA_H

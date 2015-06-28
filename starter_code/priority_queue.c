@@ -5,8 +5,6 @@
 #include <stdlib.h>
 #include "priority_queue.h"
 
-
-
 pri_queue priq_new(int size) {
   if (size < 4) size = 4;
 

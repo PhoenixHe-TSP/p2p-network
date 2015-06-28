@@ -6,6 +6,7 @@
 #include "timeout.h"
 #include "uthash.h"
 #include "priority_queue.h"
+#include "debug.h"
 
 #include <time.h>
 #include <sys/time.h>
@@ -31,11 +32,12 @@ int timeout_register(uint64_t msec, void (*handler)(void* data), void* data) {
   task->id = global_task_id++;
 
   clock_gettime(CLOCK_MONOTONIC, &task->timeout);
-  task->timeout.tv_nsec += msec * 1000 * 1000;
-  while (task->timeout.tv_nsec > 1000000000ULL) {
-    task->timeout.tv_nsec -= 1000000000ULL;
+  uint64_t nsec = msec * 1000 * 1000 + task->timeout.tv_nsec;
+  while (nsec >= 1000 * 1000 * 1000LL) {
+    nsec -= 1000 * 1000 * 1000LL;
     task->timeout.tv_sec++;
   }
+  task->timeout.tv_nsec = (__syscall_slong_t) nsec;
 
   task->handler = handler;
   task->data = data;
@@ -67,7 +69,7 @@ static int time_compare(struct timespec *a, struct timespec *b) {
 
 int timeout_dispatch() {
   struct timespec now;
-  clock_gettime(CLOCK_REALTIME, &now);
+  clock_gettime(CLOCK_MONOTONIC, &now);
 
   while (priq_size(queue)) {
     struct timeout_task *task = priq_top(queue, NULL);

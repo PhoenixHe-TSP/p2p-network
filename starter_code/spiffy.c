@@ -107,7 +107,7 @@ int spiffy_init(long lNodeID, const struct sockaddr *addr, socklen_t addrlen) {
     return -1;
   }
   *cColon = '\0';
-  gsSpiffyRouter.sin_port = htons(atoi((cColon + 1)));
+  gsSpiffyRouter.sin_port = htons((uint16_t) atoi((cColon + 1)));
 
   if (!inet_aton(cSpiffyName, &(gsSpiffyRouter.sin_addr))) {
     fprintf(stderr, "Badly formatted SPIFFY_ROUTER IP:  %s\n", cSpiffyName);
@@ -117,11 +117,11 @@ int spiffy_init(long lNodeID, const struct sockaddr *addr, socklen_t addrlen) {
   giSpiffyEnabled = 1;
   glNodeID = lNodeID;
 
-  glSrcAddr = ((struct sockaddr_in *) addr)->sin_addr.s_addr;
+  glSrcAddr = (long) ((struct sockaddr_in *) addr)->sin_addr.s_addr;
   gsSrcPort = ((struct sockaddr_in *) addr)->sin_port;
 
   fprintf(stderr, "Spiffy local stuff:  %08x:%d\n",
-          (unsigned int) glSrcAddr, ntohs(gsSrcPort));
+          (unsigned int) glSrcAddr, ntohs((uint16_t) gsSrcPort));
   fprintf(stderr, "Spiffy setup complete.  %s:%d\nDelete this line after testing.\n",
           inet_ntoa(gsSpiffyRouter.sin_addr), ntohs(gsSpiffyRouter.sin_port));
   return 0;

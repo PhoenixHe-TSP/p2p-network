@@ -13,14 +13,9 @@
 
 #include <sys/types.h>
 #include <arpa/inet.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <sys/time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
-#include <sys/select.h>
 #include "debug.h"
 #include "spiffy.h"
 #include "bt_parse.h"
@@ -68,16 +63,30 @@ void process_inbound_udp(int sock) {
 #define BUFLEN 1500
   struct sockaddr_in from;
   socklen_t fromlen;
-  char buf[BUFLEN];
+  char buf[BUFLEN], data[BUFLEN];
 
   fromlen = sizeof(from);
   spiffy_recvfrom(sock, buf, BUFLEN, 0, (struct sockaddr *) &from, &fromlen);
 
-  printf("PROCESS_INBOUND_UDP SKELETON -- replace!\n"
-             "Incoming message from %s:%d\n%s\n\n",
-         inet_ntoa(from.sin_addr),
-         ntohs(from.sin_port),
-         buf);
+  struct packet_header header;
+  int peer_id = parse_packet(&from, buf, &header, data);
+  if (peer_id == -1) {
+    return;
+  }
+
+  switch (header.type) {
+    case PACKET_WHOHAS:
+      response_i_have(peer_id, data);
+      break;
+
+    case PACKET_IHAVE:
+      handle_i_have(peer_id, data);
+      break;
+
+    default:
+      fprintf(stderr, "Unknown type %d\n", header.type);
+  }
+
 }
 
 void handle_user_input(char *line, void *cbdata) {
@@ -128,14 +137,14 @@ void peer_run(bt_config_t *config) {
   spiffy_init(config->identity, (struct sockaddr *) &myaddr, sizeof(myaddr));
 
   struct timeval timeout;
-  timeout.tv_sec = 1;
-  timeout.tv_usec = 0;
 
   while (1) {
     int nfds;
     FD_SET(STDIN_FILENO, &readfds);
     FD_SET(peer_sockfd, &readfds);
 
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 1000LL * 100;
     nfds = select(peer_sockfd + 1, &readfds, NULL, NULL, &timeout);
 
     if (nfds > 0) {
