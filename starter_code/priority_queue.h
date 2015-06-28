@@ -5,9 +5,11 @@
 #ifndef NETWORK_PRIORITY_QUEUE_H
 #define NETWORK_PRIORITY_QUEUE_H
 
+#include "stdint.h"
+
 typedef struct {
   void * data;
-  int pri;
+  int64_t pri;
 } q_elem_t;
 
 typedef struct {
@@ -19,10 +21,10 @@ typedef struct {
 
 pri_queue priq_new(int size);
 
-void priq_push(pri_queue q, void *data, int pri);
+void priq_push(pri_queue q, void *data, int64_t pri);
 
-void * priq_pop(pri_queue q, int *pri);
+void * priq_pop(pri_queue q, int64_t *pri);
 
-void* priq_top(pri_queue q, int *pri);
+void* priq_top(pri_queue q, int64_t *pri);
 
 #endif //NETWORK_PRIORITY_QUEUE_H

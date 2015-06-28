@@ -24,11 +24,13 @@ void data_init() {
   sscanf(line, "%s %s", buf, master_file_name);
   DPRINTF(DEBUG_INIT, "set master file: %s\n", master_file_name);
   int chunk_n;
+
   fgets(line, 256, fd);
   while (fgets(line, 256, fd)) {
     if (sscanf(line, "%d %s", &chunk_n, buf) != 2) {
       continue;
     };
+
     struct chunk_data* chunk = malloc(sizeof(struct chunk_data));
     chunk->global_id = chunk_n;
     strncpy(chunk->hash, buf, SHA1_HASH_SIZE + 1);

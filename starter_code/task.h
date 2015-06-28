@@ -6,6 +6,9 @@
 #define NETWORK_TASK_H
 
 #include <sys/socket.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <string.h>
 
 #include "sha.h"
 #include "chunk.h"
@@ -16,9 +19,8 @@ struct task_chunk {
   struct task_file* file_task;
   int status;
   int peer_id;
-  int fd;
   int chunk_n;
-  char hash[SHA1_HASH_SIZE];
+  char hash[SHA1_HASH_SIZE + 1];
 };
 
 struct task_file {
@@ -35,7 +37,10 @@ struct task_send {
 };
 
 
-void new_file_task();
+void init_file_broadcast(struct task_file *pFile);
+
+
+void new_file_task(char* chunkfile, char* outputfile);
 
 
 #endif //NETWORK_TASK_H

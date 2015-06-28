@@ -26,10 +26,14 @@
 #include "bt_parse.h"
 #include "input_buffer.h"
 #include "data.h"
+#include "timeout.h"
+#include "task.h"
+#include "bt_io.h"
 
 void peer_run(bt_config_t *config);
 
 bt_config_t peer_config;
+int peer_sockfd;
 
 int main(int argc, char **argv) {
 
@@ -52,6 +56,8 @@ int main(int argc, char **argv) {
 #endif
 
   data_init();
+  timeout_init();
+  bt_io_init();
 
   peer_run(&peer_config);
   return 0;
@@ -74,22 +80,20 @@ void process_inbound_udp(int sock) {
          buf);
 }
 
-void process_get(char *chunkfile, char *outputfile) {
-//  printf("PROCESS GET SKELETON CODE CALLED.  Fill me in!  (%s, %s)\n",
-//         chunkfile, outputfile);
-
-}
-
 void handle_user_input(char *line, void *cbdata) {
-  char chunkf[128], outf[128];
+  char chunkf[256], outf[256];
 
   bzero(chunkf, sizeof(chunkf));
   bzero(outf, sizeof(outf));
 
   if (sscanf(line, "GET %120s %120s", chunkf, outf)) {
     if (strlen(outf) > 0) {
-      process_get(chunkf, outf);
+      new_file_task(chunkf, outf);
     }
+
+  } else if (strcmp(line, "BYE") == 0) {
+    exit(0);
+
   } else {
     printf("Unknown command.\n");
   }
@@ -97,7 +101,6 @@ void handle_user_input(char *line, void *cbdata) {
 
 
 void peer_run(bt_config_t *config) {
-  int sock;
   struct sockaddr_in myaddr;
   fd_set readfds;
   struct user_iobuf *userbuf;
@@ -107,7 +110,7 @@ void peer_run(bt_config_t *config) {
     exit(-1);
   }
 
-  if ((sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP)) == -1) {
+  if ((peer_sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP)) == -1) {
     perror("peer_run could not create socket");
     exit(-1);
   }
@@ -117,7 +120,7 @@ void peer_run(bt_config_t *config) {
   myaddr.sin_addr.s_addr = htonl(INADDR_ANY);
   myaddr.sin_port = htons(config->myport);
 
-  if (bind(sock, (struct sockaddr *) &myaddr, sizeof(myaddr)) == -1) {
+  if (bind(peer_sockfd, (struct sockaddr *) &myaddr, sizeof(myaddr)) == -1) {
     perror("peer_run could not bind socket");
     exit(-1);
   }
@@ -127,16 +130,17 @@ void peer_run(bt_config_t *config) {
   struct timeval timeout;
   timeout.tv_sec = 1;
   timeout.tv_usec = 0;
+
   while (1) {
     int nfds;
     FD_SET(STDIN_FILENO, &readfds);
-    FD_SET(sock, &readfds);
+    FD_SET(peer_sockfd, &readfds);
 
-    nfds = select(sock + 1, &readfds, NULL, NULL, &timeout);
+    nfds = select(peer_sockfd + 1, &readfds, NULL, NULL, &timeout);
 
     if (nfds > 0) {
-      if (FD_ISSET(sock, &readfds)) {
-        process_inbound_udp(sock);
+      if (FD_ISSET(peer_sockfd, &readfds)) {
+        process_inbound_udp(peer_sockfd);
       }
 
       if (FD_ISSET(STDIN_FILENO, &readfds)) {
@@ -144,5 +148,7 @@ void peer_run(bt_config_t *config) {
                            "Currently unused");
       }
     }
+
+    timeout_dispatch();
   }
 }

@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <errno.h>
 #include <arpa/inet.h>
+#include <sys/socket.h>
+
 
 #include "spiffy.h"
 
@@ -53,12 +55,12 @@ int spiffy_recvfrom(int socket, void *buffer, size_t size, int flags, struct soc
 
   char *newbuf = NULL;
   spiffy_header s_head;
-  socklen_t local_fromlen;
+//  socklen_t local_fromlen;
   int retVal;
   struct sockaddr_in sRecvAddr;
 
   *lengthPtr = sizeof(struct sockaddr_in);
-  local_fromlen = sizeof(struct sockaddr_in);
+//  local_fromlen = sizeof(struct sockaddr_in);
 
   if (!giSpiffyEnabled) {
     printf("Spiffy not enabled, using normal recvfrom\n");
@@ -76,8 +78,8 @@ int spiffy_recvfrom(int socket, void *buffer, size_t size, int flags, struct soc
     memcpy(&s_head, newbuf, sizeof(spiffy_header));
     memcpy(buffer, newbuf + sizeof(spiffy_header), size);
     addr->sa_family = AF_INET;
-    ((struct sockaddr_in *) addr)->sin_addr.s_addr = s_head.lSrcAddr;
-    ((struct sockaddr_in *) addr)->sin_port = s_head.lSrcPort;
+    ((struct sockaddr_in *) addr)->sin_addr.s_addr = (in_addr_t) s_head.lSrcAddr;
+    ((struct sockaddr_in *) addr)->sin_port = (in_port_t) s_head.lSrcPort;
 //		printf("Spiffy recvfrom %s:%d\n", inet_ntoa(((struct sockaddr_in*)addr)->sin_addr), ntohs(((struct sockaddr_in*)addr)->sin_port));
     retVal -= sizeof(spiffy_header);
   }
@@ -119,7 +121,7 @@ int spiffy_init(long lNodeID, const struct sockaddr *addr, socklen_t addrlen) {
   gsSrcPort = ((struct sockaddr_in *) addr)->sin_port;
 
   fprintf(stderr, "Spiffy local stuff:  %08x:%d\n",
-          glSrcAddr, ntohs(gsSrcPort));
+          (unsigned int) glSrcAddr, ntohs(gsSrcPort));
   fprintf(stderr, "Spiffy setup complete.  %s:%d\nDelete this line after testing.\n",
           inet_ntoa(gsSpiffyRouter.sin_addr), ntohs(gsSpiffyRouter.sin_port));
   return 0;

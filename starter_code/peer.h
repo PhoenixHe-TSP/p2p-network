@@ -8,5 +8,6 @@
 #include "bt_parse.h"
 
 extern bt_config_t peer_config;
+extern int peer_sockfd;
 
 #endif //NETWORK_PEER_H
