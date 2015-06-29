@@ -21,7 +21,6 @@ struct flow_task {
   void (*done)(struct flow_task* task);
   void (*fail)(struct flow_task* task);
 
-  int sockfd;
   int ack;
   int pos;
   pri_queue window;
@@ -30,14 +29,12 @@ struct flow_task {
   char data[BT_CHUNK_SIZE];
 };
 
+void flow_init();
+
 void new_download_task(char* hash, struct flow_task*);
 
 void new_upload_task(struct flow_task*);
 
-void new_packet(int peer_id, int fd, struct packet_header *header, char* data);
-
-void flow_set_fd(fd_set* fs, int *maxfd);
-
-void flow_process_udp(fd_set* fs);
+void new_packet(int peer_id, struct packet_header *header, char* data);
 
 #endif //NETWORK_FLOW_H

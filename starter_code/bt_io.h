@@ -31,9 +31,7 @@ void bt_io_init();
 
 int parse_packet(struct sockaddr_in* addr, char* raw, struct packet_header* packet, char* body);
 
-int send_packet(int peer_id, int sockfd, int type, int seq, int ack, char* body, int body_len);
-
-int free_peer_id(int peer_id);
+int send_packet(int peer_id, int type, int seq, int ack, char* body, int body_len);
 
 
 #endif //NETWORK_BT_IO_H

@@ -61,16 +61,10 @@ int parse_packet(struct sockaddr_in* addr, char* raw, struct packet_header* head
   struct io_peer *peer = NULL;
   HASH_FIND(hh_addr, peers_addr, addr, sizeof(struct sockaddr_in), peer);
   if (peer == NULL) {
-    peer = malloc(sizeof(struct io_peer));
-    peer->id = ++max_id;
-    memcpy(&peer->addr, addr, sizeof(struct sockaddr_in));
-
-    HASH_ADD(hh_id, peers_id, id, sizeof(int), peer);
-    HASH_ADD(hh_addr, peers_addr, addr, sizeof(struct sockaddr_in), peer);
-
-    DPRINTF(DEBUG_SOCKETS, "New peer from %s:%d <- %d\n",
-           inet_ntoa(addr->sin_addr),
-           ntohs(addr->sin_port), peer->id);
+    DPRINTF(DEBUG_SOCKETS, "Unknown peer from %s:%d\n",
+            inet_ntoa(addr->sin_addr),
+            ntohs(addr->sin_port));
+    return -1;
   }
 
   int peer_id = peer->id;
@@ -91,7 +85,7 @@ int parse_packet(struct sockaddr_in* addr, char* raw, struct packet_header* head
   return peer_id;
 }
 
-int send_packet(int peer_id, int sockfd, int type, int seq, int ack, char* body, int body_len) {
+int send_packet(int peer_id, int type, int seq, int ack, char* body, int body_len) {
   DPRINTF(DEBUG_SOCKETS, "send packet to peer:%d type:%d seq:%d ack:%d body_len:%d\n",
           peer_id, type, seq, ack, body_len);
 
@@ -117,7 +111,7 @@ int send_packet(int peer_id, int sockfd, int type, int seq, int ack, char* body,
     memcpy(data + sizeof(struct packet_header), body, (size_t) body_len);
   }
 
-  int ret = spiffy_sendto(sockfd, data, sizeof(data), MSG_NOSIGNAL, (const struct sockaddr *) &peer->addr, sizeof(struct sockaddr_in));
+  int ret = spiffy_sendto(peer_sockfd, data, sizeof(data), MSG_NOSIGNAL, (const struct sockaddr *) &peer->addr, sizeof(struct sockaddr_in));
   if (ret == -1) {
     DEBUG_PERROR("Cannot send packet\n");
   }

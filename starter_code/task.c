@@ -132,7 +132,7 @@ void task_peer_who_has_timeout(struct task_peer_who_has_info *info) {
     p += SHA1_HASH_SIZE;
   }
 
-  send_packet(info->peer_id, peer_sockfd, PACKET_WHOHAS, -1, -1, data, sizeof(data));
+  send_packet(info->peer_id, PACKET_WHOHAS, -1, -1, data, sizeof(data));
 
   timeout_register((uint64_t) info->timout_msec, (void (*)(void *)) task_peer_who_has_timeout, info);
   info->timout_msec += info->timout_msec;
@@ -172,7 +172,7 @@ void new_file_task(char* chunkfile, char* outputfile) {
   task_file->n_waiting_rsp = 0;
   task_file->n_downloading = 0;
   task_file->n_done = 0;
-  task_file->fd = open(outputfile, O_CREAT | O_WRONLY);
+  task_file->fd = open(outputfile, O_CREAT | O_WRONLY, 0666);
   if (task_file->fd == -1) {
     perror("Cannot open output file");
     free(task_file);
@@ -222,7 +222,7 @@ void response_i_have(int peer_id, char *body) {
   }
 
   DPRINTF(DEBUG_PROCESSES, "Response to peer %d : IHAVE %d blocks\n", peer_id, ret);
-  send_packet(peer_id, peer_sockfd, PACKET_IHAVE, -1, -1, data, sizeof(data));
+  send_packet(peer_id, PACKET_IHAVE, -1, -1, data, sizeof(data));
 }
 
 void handle_download_done(struct flow_task* flow) {
@@ -311,7 +311,6 @@ void handle_i_have(int peer_id, char *body) {
 }
 
 void handle_get_done(struct flow_task* flow) {
-  free_peer_id(flow->peer_id);
   free(flow);
 }
 
@@ -322,8 +321,7 @@ void handle_get(int peer_id, char *hash) {
   flow->fail = handle_get_done;
   if (data_load_chunk(hash, flow->data)) {
     free(flow);
-    send_packet(peer_id, peer_sockfd, PACKET_DENIED, -1, -1, hash, 0);
-    free_peer_id(peer_id);
+    send_packet(peer_id, PACKET_DENIED, -1, -1, hash, 0);
     return;
   }
   new_upload_task(flow);
