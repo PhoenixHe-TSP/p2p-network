@@ -9,13 +9,12 @@
 #include "debug.h"
 
 #include <time.h>
-#include <sys/time.h>
 
-struct timeout_task {
+static struct timeout_task {
   int id;
   struct timespec timeout;
   void (*handler)(void* data);
-  void* data;
+  void *data;
   UT_hash_handle hh;
 } *tasks = NULL;
 
@@ -86,4 +85,22 @@ int timeout_dispatch() {
   }
 
   return 0;
+}
+
+void timeout_get_timeval(struct timeval* tv) {
+  if (priq_size(queue) == 0) {
+    tv->tv_sec = 16;
+    tv->tv_usec = 0;
+    return;
+  }
+
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  struct timeout_task *task = priq_top(queue, NULL);
+  tv->tv_sec = task->timeout.tv_sec - now.tv_sec;
+  tv->tv_usec = (task->timeout.tv_nsec - now.tv_nsec) / 1000 + 1;
+  if (tv->tv_usec < 0) {
+    --tv->tv_sec;
+    tv->tv_usec += 1000 * 1000;
+  }
 }

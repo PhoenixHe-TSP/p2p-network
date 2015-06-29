@@ -113,7 +113,9 @@ int send_packet(int peer_id, int sockfd, int type, int seq, int ack, char* body,
   header->ack = (unsigned int) ack;
   packet_hton(header);
 
-  memcpy(data + sizeof(struct packet_header), body, (size_t) body_len);
+  if (body && body_len) {
+    memcpy(data + sizeof(struct packet_header), body, (size_t) body_len);
+  }
 
   int ret = spiffy_sendto(sockfd, data, sizeof(data), MSG_NOSIGNAL, (const struct sockaddr *) &peer->addr, sizeof(struct sockaddr_in));
   if (ret == -1) {

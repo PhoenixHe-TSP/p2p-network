@@ -89,7 +89,7 @@ int data_load_chunk(char* hash, char* dest) {
     return -1;
   }
 
-  if (lseek(fd, chunk->global_id * BT_CHUNK_SIZE, 0)) {
+  if (lseek(fd, chunk->global_id * BT_CHUNK_SIZE, SEEK_SET) == -1) {
     perror("Cannot seek in master file");
     close(fd);
     return -1;

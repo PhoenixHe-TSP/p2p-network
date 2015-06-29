@@ -92,7 +92,7 @@ void process_inbound_udp(int sock) {
     case PACKET_ACK:
     case PACKET_DATA:
     case PACKET_DENIED:
-      new_packet(peer_id, &header, data);
+      new_packet(peer_id, sock, &header, data);
       break;
 
     default:
@@ -151,18 +151,21 @@ void peer_run(bt_config_t *config) {
   struct timeval timeout;
 
   while (1) {
-    int nfds;
+    int nfds = peer_sockfd;
+    FD_ZERO(&readfds);
     FD_SET(STDIN_FILENO, &readfds);
     FD_SET(peer_sockfd, &readfds);
+    flow_set_fd(&readfds, &nfds);
 
-    timeout.tv_sec = 0;
-    timeout.tv_usec = 1000LL * 100;
-    nfds = select(peer_sockfd + 1, &readfds, NULL, NULL, &timeout);
+    timeout_get_timeval(&timeout);
+    nfds = select(1 + nfds, &readfds, NULL, NULL, &timeout);
 
     if (nfds > 0) {
       if (FD_ISSET(peer_sockfd, &readfds)) {
         process_inbound_udp(peer_sockfd);
       }
+
+      flow_process_udp(&readfds);
 
       if (FD_ISSET(STDIN_FILENO, &readfds)) {
         process_user_input(STDIN_FILENO, userbuf, handle_user_input,

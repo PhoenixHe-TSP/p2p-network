@@ -10,4 +10,6 @@
 extern bt_config_t peer_config;
 extern int peer_sockfd;
 
+void process_inbound_udp(int sock);
+
 #endif //NETWORK_PEER_H

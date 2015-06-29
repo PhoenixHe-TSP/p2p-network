@@ -211,11 +211,15 @@ void new_file_task(char* chunkfile, char* outputfile) {
 }
 
 void response_i_have(int peer_id, char *body) {
-  int n = *((int*)body);
+  int n = *((uint8_t*)body);
   char data[n * SHA1_HASH_SIZE + sizeof(int)];
 
   int ret = data_request_chunks(n, body + sizeof(int), data + sizeof(int));
-  *((uint32_t*)data) = htonl((uint32_t) ret);
+  *((uint8_t*)data) = (uint8_t) ret;
+
+  if (ret == 0) {
+    return;
+  }
 
   DPRINTF(DEBUG_PROCESSES, "Response to peer %d : IHAVE %d blocks\n", peer_id, ret);
   send_packet(peer_id, peer_sockfd, PACKET_IHAVE, -1, -1, data, sizeof(data));
@@ -227,7 +231,7 @@ void handle_download_done(struct flow_task* flow) {
   chunk->status = STATUS_DONE;
   // TODO: check hash value
 
-  if (lseek(file->fd, chunk->chunk_n * BT_CHUNK_SIZE, 0) < 0) {
+  if (lseek(file->fd, chunk->chunk_n * BT_CHUNK_SIZE, SEEK_SET) == -1) {
     perror("Cannot seek position in file for writing");
   } else {
     int size = write(file->fd, flow->data, BT_CHUNK_SIZE);
@@ -277,7 +281,7 @@ void handle_i_have(int peer_id, char *body) {
   }
   utarray_clear(&ps->pending_requests);
 
-  int n = ntohl(*((uint32_t*) body));
+  int n = *((uint8_t*) body);
   body += sizeof(uint32_t);
   for (int i = 0; i < n; ++i) {
     char* hash = body + i * SHA1_HASH_SIZE;

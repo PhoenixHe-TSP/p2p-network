@@ -16,6 +16,11 @@ pri_queue priq_new(int size) {
   return q;
 }
 
+void priq_free(pri_queue q) {
+  free(q->buf);
+  free(q);
+}
+
 void priq_push(pri_queue q, void *data, int64_t pri) {
   q_elem_t *b;
   int n, m;
@@ -82,3 +87,4 @@ void priq_combine(pri_queue q, pri_queue q2)
     priq_push(q, e->data, e->pri);
   priq_purge(q2);
 }
+

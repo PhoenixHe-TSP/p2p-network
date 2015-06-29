@@ -21,10 +21,13 @@ typedef struct {
 
 pri_queue priq_new(int size);
 
+void priq_free(pri_queue q);
+
 void priq_push(pri_queue q, void *data, int64_t pri);
 
 void * priq_pop(pri_queue q, int64_t *pri);
 
 void* priq_top(pri_queue q, int64_t *pri);
+
 
 #endif //NETWORK_PRIORITY_QUEUE_H

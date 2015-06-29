@@ -16,4 +16,6 @@ int timeout_cancel(int timeout_id);
 
 int timeout_dispatch();
 
+void timeout_get_timeval(struct timeval* tv);
+
 #endif //NETWORK_TIMEOUT_H
