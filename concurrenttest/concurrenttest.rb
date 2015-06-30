@@ -1,4 +1,4 @@
-#!/usr/local/bin/ruby
+#!/usr/bin/ruby
 
 
 # tests your peer downloading from our ref_peer
@@ -20,7 +20,7 @@ def test1
 	    $stdin.reopen(parent_to_child_read) or
 			raise "Unable to redirect STDIN"
 
-	    exec("./peer -p nodes.map -c B.chunks -f ./C.chunks -m 4 -i 3 -d 3")    
+	    exec("./peer -p nodes.map -c B.chunks -f ./C.chunks -m 4 -i 3 -d 15")    
 	end
 	parent_to_child_read.close
 

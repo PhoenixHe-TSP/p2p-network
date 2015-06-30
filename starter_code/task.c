@@ -261,31 +261,6 @@ void response_i_have(int peer_id, char *body) {
   send_packet(peer_id, PACKET_IHAVE, -1, -1, data, sizeof(data));
 }
 
-void handle_download_done(struct flow_task* flow) {
-  struct task_chunk *chunk = flow->extra_data;
-  struct task_file *file = chunk->file_task;
-  chunk->status = STATUS_DONE;
-  // TODO: check hash value
-
-  if (lseek(file->fd, chunk->chunk_n * BT_CHUNK_SIZE, SEEK_SET) == -1) {
-    perror("Cannot seek position in file for writing");
-  } else {
-    int size = write(file->fd, flow->data, BT_CHUNK_SIZE);
-    if (size != BT_CHUNK_SIZE) {
-      fprintf(stderr, "Cannot write to file, the file content maybe incomplete\n");
-    }
-  }
-
-  data_save_chunk(chunk->hash, flow->data);
-
-  --file->n_downloading;
-  ++file->n_done;
-  if (file->n_done == file->n_chunks) {
-    printf("Finish downloading\n");
-    free_task_file(file);
-  }
-}
-
 void handle_download_fail(struct flow_task* flow) {
   struct task_chunk *chunk = flow->extra_data;
   struct task_file *file = chunk->file_task;
@@ -306,6 +281,42 @@ void handle_download_fail(struct flow_task* flow) {
   utarray_pop_back(&chunk->peers);
   new_download_task(chunk->hash, flow);
 }
+
+void handle_download_done(struct flow_task* flow) {
+  struct task_chunk *chunk = flow->extra_data;
+  struct task_file *file = chunk->file_task;
+
+  char hash[SHA1_HASH_SIZE];
+  shahash((uint8_t *) flow->data, BT_CHUNK_SIZE, (uint8_t *) hash);
+  if (memcmp(hash, chunk->hash, SHA1_HASH_SIZE) != 0) {
+    fprintf(stderr, "DATA HASH CHECK FAILED\n");
+    handle_download_fail(flow);
+    return;
+  }
+
+
+  chunk->status = STATUS_DONE;
+
+  if (lseek(file->fd, chunk->chunk_n * BT_CHUNK_SIZE, SEEK_SET) == -1) {
+    perror("Cannot seek position in file for writing");
+  } else {
+    int size = write(file->fd, flow->data, BT_CHUNK_SIZE);
+    if (size != BT_CHUNK_SIZE) {
+      fprintf(stderr, "Cannot write to file, the file content maybe incomplete\n");
+    }
+  }
+
+  data_save_chunk(chunk->hash, flow->data);
+
+  --file->n_downloading;
+  ++file->n_done;
+  DPRINTF(DEBUG_SOCKETS, "AFTER DONE: %d %d\n", file->n_done, file->n_chunks);
+  if (file->n_done == file->n_chunks) {
+    printf("Finish downloading\n");
+    free_task_file(file);
+  }
+}
+
 
 void handle_i_have(int peer_id, char *body) {
   struct peer_status *ps;
@@ -337,6 +348,7 @@ void handle_i_have(int peer_id, char *body) {
     HASH_ITER(hh, task_chunks_p->tasks, chunk, tmp) {
 
       if (chunk->status == STATUS_WAITING || chunk->status == STATUS_FAILED) {
+        chunk->status = STATUS_DOWNLOADING;
         ++chunk->file_task->n_downloading;
         struct flow_task *flow = malloc(sizeof(struct flow_task));
         flow->peer_id = peer_id;

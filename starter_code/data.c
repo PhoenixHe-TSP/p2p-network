@@ -58,6 +58,7 @@ void data_init() {
       continue;
     }
 
+    DPRINTF(DEBUG_SOCKETS, "OWNED CHUNK %d\n", chunk->global_id);
     chunk->owned = 1;
   }
   fclose(fd);
@@ -80,6 +81,11 @@ int data_load_chunk(char* hash, char* dest) {
   struct chunk_data *chunk;
   HASH_FIND(hh, chunks, hash, SHA1_HASH_SIZE, chunk);
   if (chunk == NULL || !chunk->owned) {
+    if (chunk == NULL) {
+      DPRINTF(DEBUG_SOCKETS, "CHUNK IS NULL\n");
+    } else if (!chunk->owned) {
+      DPRINTF(DEBUG_SOCKETS, "CHUNK %d IS NOT OWNED\n", chunk->global_id);
+    }
     return -1;
   }
 

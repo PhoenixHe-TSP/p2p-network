@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.2)
+cmake_minimum_required(VERSION 3.0.2)
 project(network)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "/home/htc/dev/p2p-network/test")

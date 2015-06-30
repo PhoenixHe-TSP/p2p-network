@@ -11,6 +11,7 @@
 #include "debug.h"
 #include "peer.h"
 #include "utlist.h"
+#include "data.h"
 
 #define TIMEOUT 400
 
@@ -254,6 +255,10 @@ void data_timeout(struct flow_task *task) {
       free(cache);
     }
     priq_free(task->recv_window);
+    struct task_map *tm;
+    HASH_FIND_INT(peer_tasks, &task->peer_id, tm);
+    tm->cur_recv_task = NULL;
+
     if (task->fail) {
       task->fail(task);
     }
@@ -272,10 +277,15 @@ void data_timeout(struct flow_task *task) {
 }
 
 void next_recv_task(int peer_id) {
+  DPRINTF(DEBUG_SOCKETS, "NEXT RECV TASK\n");
   struct task_map *tm;
   HASH_FIND_INT(peer_tasks, &peer_id, tm);
-  tm->cur_recv_task = NULL;
+  if (tm->cur_recv_task != NULL) {
+    DPRINTF(DEBUG_SOCKETS, "REFUSE TO DO NEXT RECV TASK DUE TO CURRENT TASK\n");
+    return;
+  }
   if (tm->pending_recv_tasks == NULL) {
+    DPRINTF(DEBUG_SOCKETS, "NOTHING TO DO\n");
     return;
   }
 
@@ -289,6 +299,7 @@ void next_recv_task(int peer_id) {
 
   task->timeout_cnt = 0;
   task->timeout_id = timeout_register(TIMEOUT, (void (*)(void *)) data_timeout, task);
+  DPRINTF(DEBUG_SOCKETS, "SET NEXT TASK\n");
 }
 
 void handle_data(struct packet_header *header, struct flow_task *task, void *data) {
@@ -342,6 +353,10 @@ void handle_data(struct packet_header *header, struct flow_task *task, void *dat
     DPRINTF(DEBUG_SOCKETS, "RECV DONE\n");
     priq_free(task->recv_window);
 
+    struct task_map *tm;
+    HASH_FIND_INT(peer_tasks, &task->peer_id, tm);
+    tm->cur_recv_task = NULL;
+
     if (task->done) {
       task->done(task);
     }
@@ -356,6 +371,16 @@ void handle_data(struct packet_header *header, struct flow_task *task, void *dat
 
 
 void new_download_task(char *hash, struct flow_task *task) {
+  DPRINTF(DEBUG_SOCKETS, "TRY TO LOAD FROM CACHE\n");
+  int ret = data_load_chunk(hash, task->data);
+  if (ret == 0) {
+    DPRINTF(DEBUG_SOCKETS, "LOAD FROM CACHE\n");
+    if (task->done) {
+      task->done(task);
+    }
+    return;
+  }
+
   task->flow_id = flow_id++;
   task->type = FLOW_RECV;
   task->recv_window = priq_new(8);
@@ -371,6 +396,7 @@ void new_download_task(char *hash, struct flow_task *task) {
   node->task = task;
   DL_APPEND(tm->pending_recv_tasks, node);
 
+  DPRINTF(DEBUG_SOCKETS, "%x\n", tm->cur_recv_task);
   if (tm->cur_recv_task == NULL) {
     next_recv_task(task->peer_id);
   }
@@ -383,6 +409,7 @@ void handle_denied(struct packet_header *header, struct flow_task *task) {
   tm->cur_recv_task = NULL;
 
   priq_free(task->recv_window);
+
   if (task->fail) {
     task->fail(task);
   }
