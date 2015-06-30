@@ -12,7 +12,7 @@
 #include "peer.h"
 #include "utlist.h"
 
-#define TIMEOUT 1000
+#define TIMEOUT 400
 
 static int flow_id = 0;
 

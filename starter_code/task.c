@@ -27,6 +27,7 @@ struct task_chunk {
   struct task_file* file_task;
   int status;
   int chunk_n;
+  int retry_cnt;
   char hash[SHA1_HASH_SIZE];
   UT_array peers;
   struct flow_task flow;
@@ -55,6 +56,7 @@ struct task_peer_who_has_info {
   int status;
   int n_try;
   struct task_file* task_file;
+  struct task_chunk* task_chunk;
 };
 
 struct peer_status {
@@ -116,30 +118,38 @@ void task_peer_who_has_timeout(struct task_peer_who_has_info *info) {
   if (++info->n_try > 3) {
     fprintf(stderr, "peer %d not responding\n", info->peer_id);
     free_task_peer_who_has_info(info);
-    if ((--task_file->n_waiting_rsp) == 0 && task_file->n_downloading == 0) {
+    if ((--task_file->n_waiting_rsp) == 0 && task_file->n_downloading == 0 && task_file->n_done == 0) {
       printf("GET failed: cannot download any piece of file.\n");
       free_task_file(task_file);
     }
     return;
   }
 
-  char data[sizeof(int) + SHA1_HASH_SIZE * task_file->n_chunks];
-  char* p = data;
-  *((int*) p) = task_file->n_chunks;
-  p += 4;
-  for (int i = 0; i < task_file->n_chunks; ++i) {
-    memcpy(p, task_file->chunk_tasks[i].hash, SHA1_HASH_SIZE);
-    p += SHA1_HASH_SIZE;
-  }
+  if (info->task_file) {
+    char data[sizeof(int) + SHA1_HASH_SIZE * task_file->n_chunks];
+    char* p = data;
+    *((char*) p) = (char) task_file->n_chunks;
+    p += 4;
+    for (int i = 0; i < task_file->n_chunks; ++i) {
+      memcpy(p, task_file->chunk_tasks[i].hash, SHA1_HASH_SIZE);
+      p += SHA1_HASH_SIZE;
+    }
 
-  send_packet(info->peer_id, PACKET_WHOHAS, -1, -1, data, sizeof(data));
+    send_packet(info->peer_id, PACKET_WHOHAS, -1, -1, data, sizeof(data));
+
+  } else if (info->task_chunk) {
+    char data[sizeof(int) + SHA1_HASH_SIZE];
+    *((char*) data) = 1;
+    memcpy(data + sizeof(int), info->task_chunk->hash, SHA1_HASH_SIZE);
+
+    send_packet(info->peer_id, PACKET_WHOHAS, -1, -1, data, sizeof(data));
+  }
 
   timeout_register((uint64_t) info->timout_msec, (void (*)(void *)) task_peer_who_has_timeout, info);
   info->timout_msec += info->timout_msec;
 }
 
 void init_file_broadcast(struct task_file *task_file) {
-
   bt_peer_t *peer = peer_config.peers;
   while (peer) {
     if (peer->id != peer_config.identity) {
@@ -148,6 +158,7 @@ void init_file_broadcast(struct task_file *task_file) {
       info->peer_id = peer->id;
       info->status = STATUS_WAITING;
       info->task_file = task_file;
+      info->task_chunk = NULL;
       info->timout_msec = 1000;
       info->n_try = 0;
 
@@ -159,6 +170,30 @@ void init_file_broadcast(struct task_file *task_file) {
     }
     peer = peer->next;
   }
+}
+
+void retry_chunk_broadcast(struct task_chunk *chunk) {
+  bt_peer_t *peer = peer_config.peers;
+  while (peer) {
+    if (peer->id != peer_config.identity) {
+      ++chunk->file_task->n_waiting_rsp;
+      struct task_peer_who_has_info *info = malloc(sizeof(struct task_peer_who_has_info));
+      info->peer_id = peer->id;
+      info->status = STATUS_WAITING;
+      info->task_file = NULL;
+      info->task_chunk = chunk;
+      info->timout_msec = 1000;
+      info->n_try = 0;
+
+      struct peer_status *ps;
+      HASH_FIND_INT(peers_all, &info->peer_id, ps);
+      utarray_push_back(&ps->pending_requests, &info);
+
+      task_peer_who_has_timeout(info);
+    }
+    peer = peer->next;
+  }
+
 }
 
 void new_file_task(char* chunkfile, char* outputfile) {
@@ -192,6 +227,7 @@ void new_file_task(char* chunkfile, char* outputfile) {
     struct task_chunk *chunk = task_file->chunk_tasks + i;
     chunk->file_task = task_file;
     chunk->chunk_n = i;
+    chunk->retry_cnt = 0;
     chunk->status = STATUS_WAITING;
     hex2binary(hash, strlen(hash), (uint8_t *) chunk->hash);
     utarray_init(&chunk->peers, &ut_int_icd);
@@ -254,9 +290,15 @@ void handle_download_fail(struct flow_task* flow) {
   struct task_chunk *chunk = flow->extra_data;
   struct task_file *file = chunk->file_task;
   if (!utarray_len(&chunk->peers)) {
-    fprintf(stderr, "Cannot download part of file\n");
-    chunk->status = STATUS_FAILED;
-    file->status = STATUS_FAILED;
+    if (++chunk->retry_cnt > 3) {
+      fprintf(stderr, "Cannot download part of file\n");
+      chunk->status = STATUS_FAILED;
+      file->status = STATUS_FAILED;
+      return;
+    }
+
+    chunk->status = STATUS_WAITING;
+    retry_chunk_broadcast(chunk);
     return;
   }
 
