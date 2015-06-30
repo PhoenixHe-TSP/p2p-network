@@ -4,6 +4,7 @@
 
 #include <stddef.h>
 #include <unistd.h>
+#include <time.h>
 #include "flow.h"
 #include "uthash.h"
 #include "timeout.h"
@@ -12,6 +13,8 @@
 #include "utlist.h"
 
 #define TIMEOUT 1000
+
+static int flow_id = 0;
 
 static struct task_recv_list {
   struct flow_task *task;
@@ -35,6 +38,8 @@ struct data_cache {
 
 void next_recv_task(int id);
 
+static struct timespec start_time;
+
 void flow_init() {
   struct bt_peer_s *peer = peer_config.peers;
   for (; peer; peer = peer->next) {
@@ -47,6 +52,25 @@ void flow_init() {
     tm->peer_id = peer->id;
     HASH_ADD_INT(peer_tasks, peer_id, tm);
   }
+
+  clock_gettime(CLOCK_MONOTONIC, &start_time);
+}
+
+void trace_window_size(struct flow_task *task) {
+  if (task->last_window_size == task->window_size) {
+    return;
+  }
+  task->last_window_size = task->window_size;
+
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  long long msec = (now.tv_sec - start_time.tv_sec) * 1000;
+  msec += (now.tv_nsec - start_time.tv_nsec) / 1000 / 1000;
+
+  FILE* f = fopen("problem2-peer.txt", "a");
+  fprintf(f, "f%d\t%lld\t%d\n", task->flow_id, msec, task->window_size);
+  fclose(f);
+  printf("f%d\t%lld\t%d\n", task->flow_id, msec, task->window_size);
 }
 
 void ack_timeout(struct flow_task *task) {
@@ -71,14 +95,24 @@ void ack_timeout(struct flow_task *task) {
     return;
   }
 
-  // TODO adjuest window size
+  task->window_size = 1;
+  task->ack_sum = 0;
+  if (task->window_size < 1) {
+    task->window_size = 1;
+  }
+  trace_window_size(task);
 
-  send_packet(task->peer_id, PACKET_DATA, -1, task->ack + 1, task->data + packet->pos, packet->data_len);
+  send_packet(task->peer_id, PACKET_DATA, packet->seq, -1, task->data + packet->pos, packet->data_len);
   task->timeout_id = timeout_register(TIMEOUT, (void (*)(void *)) ack_timeout, task);
 }
 
 void new_upload_task(struct flow_task* task) {
+  task->flow_id = flow_id++;
   task->type = FLOW_SEND;
+  task->last_window_size = -1;
+  task->ssthresh = 8;
+  task->rtt = 8;
+  task->ack_sum = 0;
   task->ack = 1;
   task->pos = 0;
   task->timeout_id = -1;
@@ -106,6 +140,8 @@ void new_upload_task(struct flow_task* task) {
   task->window_size = 1;
   task->dup_ack = 0;
 
+  trace_window_size(task);
+
   tm->cur_send_task = task;
   send_packet(task->peer_id, PACKET_DATA, 1, -1, NULL, 0);
   task->timeout_id = timeout_register(TIMEOUT, (void (*)(void *)) ack_timeout, task);
@@ -122,15 +158,34 @@ void handle_ack(struct packet_header *header, struct flow_task *task) {
 
   struct flow_packet *packet = task->send_window;
   if (header->ack == task->send_window->seq) {
-    if (task->dup_ack != header->ack) {
-      task->dup_ack = header->ack;
-    } else {
+    ++task->dup_ack;
+    if (task->dup_ack >= 3) {
       // fast retransmit
       send_packet(task->peer_id, PACKET_DATA, packet->seq, -1, task->data + packet->pos, packet->data_len);
+      task->window_size = 1;
+      task->ack_sum = 0;
+      task->dup_ack = -1;
     }
+  } else {
+    task->dup_ack = 0;
   }
 
+
   // ACK packet
+  if (packet && header->ack > packet->seq && task->pos < BT_CHUNK_SIZE) {
+    task->rtt = task->rtt * 0.75f + (task->send_window_tail->seq - packet->seq) * 0.25f;
+
+    if (task->window_size < task->ssthresh) {
+      ++task->window_size;
+    } else {
+      ++task->ack_sum;
+      if (task->ack_sum > task->rtt) {
+        task->ack_sum = 0;
+        ++task->window_size;
+        task->ssthresh = task->window_size / 2;
+      }
+    }
+  }
   while (packet && header->ack > packet->seq) {
     --task->send_window_size;
     task->send_window = packet->next;
@@ -157,7 +212,10 @@ void handle_ack(struct packet_header *header, struct flow_task *task) {
     return;
   }
 
-  // TODO adjust window size
+  if (task->window_size < 1) {
+    task->window_size = 1;
+  }
+  trace_window_size(task);
 
   // Send more packets
   while (task->send_window_size < task->window_size && task->pos != BT_CHUNK_SIZE) {
@@ -298,6 +356,7 @@ void handle_data(struct packet_header *header, struct flow_task *task, void *dat
 
 
 void new_download_task(char *hash, struct flow_task *task) {
+  task->flow_id = flow_id++;
   task->type = FLOW_RECV;
   task->recv_window = priq_new(8);
   task->ack = 1;

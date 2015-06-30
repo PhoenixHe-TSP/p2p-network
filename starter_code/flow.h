@@ -22,6 +22,7 @@ struct flow_packet {
 };
 
 struct flow_task {
+  int flow_id;
   int type;
   int peer_id;
   void* extra_data;
@@ -34,6 +35,10 @@ struct flow_task {
   int timeout_cnt;
 
   int window_size;
+  int last_window_size;
+  int ssthresh;
+  double rtt;
+  int ack_sum;
 
   // send window
   int dup_ack;
