@@ -57,7 +57,7 @@ end
 def test2
      
         peer1_pid = fork do
-            exec("./peer -p nodes.map -c B.chunks -f C.chunks -m 4 -i 1  -d 0")
+            exec("./peer -p nodes.map -c B.chunks -f C.chunks -m 4 -i 1  -d 15")
         end 
          
 	parent_to_child_read, parent_to_child_write = IO.pipe

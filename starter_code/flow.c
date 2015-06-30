@@ -11,6 +11,8 @@
 #include "peer.h"
 #include "utlist.h"
 
+#define TIMEOUT 1000
+
 static struct task_recv_list {
   struct flow_task *task;
   struct task_recv_list *next, *prev;
@@ -47,18 +49,103 @@ void flow_init() {
   }
 }
 
+void ack_timeout(struct flow_task *task) {
+  struct flow_packet *packet = task->send_window;
+
+  ++task->timeout_cnt;
+  if (task->timeout_cnt > 8) {
+    DPRINTF(DEBUG_SOCKETS, "SEND FAILED: timeout\n");
+    struct task_map *tm;
+    HASH_FIND_INT(peer_tasks, &task->peer_id, tm);
+    tm->cur_send_task = NULL;
+
+    while (packet) {
+      task->send_window = packet->next;
+      free(packet);
+      packet = task->send_window;
+    }
+
+    if (task->fail) {
+      task->fail(task);
+    }
+    return;
+  }
+
+  // TODO adjuest window size
+
+  send_packet(task->peer_id, PACKET_DATA, -1, task->ack + 1, task->data + packet->pos, packet->data_len);
+  task->timeout_id = timeout_register(TIMEOUT, (void (*)(void *)) ack_timeout, task);
+}
+
+void new_upload_task(struct flow_task* task) {
+  task->type = FLOW_SEND;
+  task->ack = 1;
+  task->pos = 0;
+  task->timeout_id = -1;
+
+  struct task_map *tm;
+  HASH_FIND_INT(peer_tasks, &task->peer_id, tm);
+
+  if (tm->cur_send_task) {
+    send_packet(task->peer_id, PACKET_DENIED, -1, -1, NULL, 0);
+    if (task->fail) {
+      task->fail(task);
+    }
+    return;
+  }
+
+  struct flow_packet *packet = malloc(sizeof(struct flow_packet));
+  packet->data_len = 0;
+  packet->pos = 0;
+  packet->seq = 1;
+  packet->next = NULL;
+
+  task->send_window = packet;
+  task->send_window_tail = packet;
+  task->send_window_size = 1;
+  task->window_size = 1;
+  task->dup_ack = 0;
+
+  tm->cur_send_task = task;
+  send_packet(task->peer_id, PACKET_DATA, 1, -1, NULL, 0);
+  task->timeout_id = timeout_register(TIMEOUT, (void (*)(void *)) ack_timeout, task);
+}
+
 void handle_ack(struct packet_header *header, struct flow_task *task) {
   if (task->type == FLOW_RECV) {
     return;
   }
 
-  if (header->ack != task->ack + 1) {
-    DPRINTF(DEBUG_SOCKETS, "Unaccepted ACK packet\n");
+  if (header->ack < task->send_window->seq) {
     return;
   }
 
-  ++task->ack;
-  if (task->pos == BT_CHUNK_SIZE) {
+  struct flow_packet *packet = task->send_window;
+  if (header->ack == task->send_window->seq) {
+    if (task->dup_ack != header->ack) {
+      task->dup_ack = header->ack;
+    } else {
+      // fast retransmit
+      send_packet(task->peer_id, PACKET_DATA, packet->seq, -1, task->data + packet->pos, packet->data_len);
+    }
+  }
+
+  // ACK packet
+  while (packet && header->ack > packet->seq) {
+    --task->send_window_size;
+    task->send_window = packet->next;
+    free(packet);
+    packet = task->send_window;
+  }
+
+  // Cancel timer
+  if (task->timeout_id != -1) {
+    timeout_cancel(task->timeout_id);
+    task->timeout_id = -1;
+  }
+
+  // Check if we have done
+  if (packet == NULL && task->pos == BT_CHUNK_SIZE) {
     DPRINTF(DEBUG_SOCKETS, "SEND DONE\n");
     struct task_map *tm;
     HASH_FIND_INT(peer_tasks, &task->peer_id, tm);
@@ -70,64 +157,60 @@ void handle_ack(struct packet_header *header, struct flow_task *task) {
     return;
   }
 
-  int data_len = 1000;
-  if (task->pos + data_len > BT_CHUNK_SIZE) {
-    data_len = BT_CHUNK_SIZE - task->pos;
-  }
-  char data[data_len];
-  memcpy(data, task->data + task->pos, (size_t) data_len);
-  task->pos += data_len;
+  // TODO adjust window size
 
-  send_packet(task->peer_id, PACKET_DATA, task->ack + 1, -1, data, data_len);
+  // Send more packets
+  while (task->send_window_size < task->window_size && task->pos != BT_CHUNK_SIZE) {
+    packet = malloc(sizeof(struct flow_packet));
+    packet->seq = ++task->ack;
+    packet->pos = task->pos;
+    packet->data_len = 1432;
+    if (task->pos + packet->data_len > BT_CHUNK_SIZE) {
+      packet->data_len = BT_CHUNK_SIZE - task->pos;
+    }
+    task->pos += packet->data_len;
+
+    send_packet(task->peer_id, PACKET_DATA, packet->seq, -1, task->data + packet->pos, packet->data_len);
+
+    packet->next = NULL;
+    if (task->send_window == NULL) {
+      task->send_window = packet;
+    } else {
+      task->send_window_tail->next = packet;
+    }
+    task->send_window_tail = packet;
+    ++task->send_window_size;
+  }
+
+  // Register timeout
+  task->timeout_cnt = 0;
+  task->timeout_id = timeout_register(TIMEOUT, (void (*)(void *)) ack_timeout, task);
 }
 
-void handle_data(struct packet_header *header, struct flow_task *task, void *data) {
-  size_t data_len = header->total_len - header->header_len;
-
-  if (header->seq == task->ack + 1) {
-    task->ack = header->seq;
-    memcpy(task->data + task->pos, data, data_len);
-    task->pos += data_len;
-
-    while (!priq_size(task->window)) {
-      int64_t seq;
-
-      priq_top(task->window, &seq);
-      if (seq <= task->ack) {
-        priq_pop(task->window, NULL);
-        continue;
-      }
-
-      if (seq != task->ack + 1) {
-        break;
-      }
-
-      ++task->ack;
-      struct data_cache *cache = priq_pop(task->window, NULL);
-      memcpy(task->data + task->pos, cache->data, cache->len);
-      task->pos += data_len;
+void data_timeout(struct flow_task *task) {
+  ++task->timeout_cnt;
+  if (task->timeout_cnt > 8) {
+    DPRINTF(DEBUG_SOCKETS, "RECV FAIL\n");
+    while (priq_size(task->recv_window)) {
+      struct data_cache *cache = priq_pop(task->recv_window, NULL);
       free(cache);
     }
-
-  } else {
-    struct data_cache *cache = malloc(sizeof(size_t) + data_len);
-    cache->len = data_len;
-    memcpy(cache->data, data, data_len);
-    priq_push(task->window, cache, header->seq);
-  }
-
-  send_packet(task->peer_id, PACKET_ACK, -1, task->ack, NULL, 0);
-
-  if (task->pos == BT_CHUNK_SIZE) {
-    DPRINTF(DEBUG_SOCKETS, "RECV DONE\n");
-    priq_free(task->window);
-
-    if (task->done) {
-      task->done(task);
+    priq_free(task->recv_window);
+    if (task->fail) {
+      task->fail(task);
     }
 
     next_recv_task(task->peer_id);
+    return;
   }
+
+  if (task->ack == 1) {
+    send_packet(task->peer_id, PACKET_GET, 1, -1, task->data, SHA1_HASH_SIZE);
+  } else {
+    send_packet(task->peer_id, PACKET_ACK, -1, task->ack, NULL, 0);
+  }
+
+  task->timeout_id = timeout_register(TIMEOUT, (void (*)(void *)) data_timeout, task);
 }
 
 void next_recv_task(int peer_id) {
@@ -145,24 +228,79 @@ void next_recv_task(int peer_id) {
 
   tm->cur_recv_task = task;
   send_packet(task->peer_id, PACKET_GET, 1, -1, task->data, SHA1_HASH_SIZE);
+
+  task->timeout_cnt = 0;
+  task->timeout_id = timeout_register(TIMEOUT, (void (*)(void *)) data_timeout, task);
 }
 
-void handle_denied(struct packet_header *header, struct flow_task *task) {
-  DPRINTF(DEBUG_SOCKETS, "task failed\n");
-  struct task_map *tm;
-  HASH_FIND_INT(peer_tasks, &task->peer_id, tm);
-  tm->cur_recv_task = NULL;
+void handle_data(struct packet_header *header, struct flow_task *task, void *data) {
+  size_t data_len = header->total_len - header->header_len;
 
-  priq_free(task->window);
-  if (task->fail) {
-    task->fail(task);
+  if (header->seq == task->ack) {
+    task->ack = header->seq + 1;
+    memcpy(task->data + task->pos, data, data_len);
+    task->pos += data_len;
+
+    while (!priq_size(task->recv_window)) {
+      int64_t seq;
+
+      priq_top(task->recv_window, &seq);
+      if (seq < task->ack) {
+        priq_pop(task->recv_window, NULL);
+        continue;
+      }
+
+      if (seq != task->ack) {
+        break;
+      }
+
+      ++task->ack;
+      struct data_cache *cache = priq_pop(task->recv_window, NULL);
+      memcpy(task->data + task->pos, cache->data, cache->len);
+      task->pos += data_len;
+      free(cache);
+    }
+
+  } else {
+    struct data_cache *cache = malloc(sizeof(size_t) + data_len);
+    cache->len = data_len;
+    memcpy(cache->data, data, data_len);
+    priq_push(task->recv_window, cache, header->seq);
+
+    // fast retransmit
+    send_packet(task->peer_id, PACKET_ACK, -1, task->ack, NULL, 0);
   }
+
+  send_packet(task->peer_id, PACKET_ACK, -1, task->ack, NULL, 0);
+
+  // Cancel timer
+  if (task->timeout_id != -1) {
+    timeout_cancel(task->timeout_id);
+    task->timeout_id = -1;
+  }
+
+  // Receive done
+  if (task->pos == BT_CHUNK_SIZE) {
+    DPRINTF(DEBUG_SOCKETS, "RECV DONE\n");
+    priq_free(task->recv_window);
+
+    if (task->done) {
+      task->done(task);
+    }
+
+    next_recv_task(task->peer_id);
+    return;
+  }
+
+  task->timeout_cnt = 0;
+  task->timeout_id = timeout_register(TIMEOUT, (void (*)(void *)) data_timeout, task);
 }
+
 
 void new_download_task(char *hash, struct flow_task *task) {
   task->type = FLOW_RECV;
-  task->window = priq_new(8);
-  task->ack = 0;
+  task->recv_window = priq_new(8);
+  task->ack = 1;
   task->pos = 0;
   task->timeout_id = -1;
   memcpy(task->data, hash, SHA1_HASH_SIZE);
@@ -179,25 +317,16 @@ void new_download_task(char *hash, struct flow_task *task) {
   }
 }
 
-void new_upload_task(struct flow_task* task) {
-  task->type = FLOW_SEND;
-  task->ack = 0;
-  task->pos = 0;
-  task->timeout_id = -1;
-
+void handle_denied(struct packet_header *header, struct flow_task *task) {
+  DPRINTF(DEBUG_SOCKETS, "task failed\n");
   struct task_map *tm;
   HASH_FIND_INT(peer_tasks, &task->peer_id, tm);
+  tm->cur_recv_task = NULL;
 
-  if (tm->cur_send_task) {
-    send_packet(task->peer_id, PACKET_DENIED, -1, -1, NULL, 0);
-    if (task->fail) {
-      task->fail(task);
-    }
-    return;
+  priq_free(task->recv_window);
+  if (task->fail) {
+    task->fail(task);
   }
-
-  tm->cur_send_task = task;
-  send_packet(task->peer_id, PACKET_DATA, 1, -1, NULL, 0);
 }
 
 void new_packet(int peer_id, struct packet_header *header, char* data) {

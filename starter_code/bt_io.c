@@ -75,6 +75,9 @@ int parse_packet(struct sockaddr_in* addr, char* raw, struct packet_header* head
     fprintf(stderr, "Cannot parse unknown packet with MAGIC %d and version %d\n", header->magic, header->version);
     return -1;
   }
+  if (header->type == PACKET_ACK) {
+    ++header->ack;
+  }
 
   size_t body_len = header->total_len - header->header_len;
   memcpy(body, raw + header->header_len, body_len);
@@ -105,6 +108,9 @@ int send_packet(int peer_id, int type, int seq, int ack, char* body, int body_le
   header->type = (unsigned int) type;
   header->seq = (unsigned int) seq;
   header->ack = (unsigned int) ack;
+  if (header->type == PACKET_ACK) {
+    --header->ack;
+  }
   packet_hton(header);
 
   if (body && body_len) {

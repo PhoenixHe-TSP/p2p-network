@@ -26,12 +26,12 @@ void timeout_init() {
   global_task_id = 1;
 }
 
-int timeout_register(uint64_t msec, void (*handler)(void* data), void* data) {
+int timeout_register(long long msec, void (*handler)(void* data), void* data) {
   struct timeout_task* task = malloc(sizeof(struct timeout_task));
   task->id = global_task_id++;
 
   clock_gettime(CLOCK_MONOTONIC, &task->timeout);
-  uint64_t nsec = msec * 1000 * 1000 + task->timeout.tv_nsec;
+  long long nsec = msec * 1000 * 1000 + task->timeout.tv_nsec;
   while (nsec >= 1000 * 1000 * 1000LL) {
     nsec -= 1000 * 1000 * 1000LL;
     task->timeout.tv_sec++;
@@ -43,16 +43,20 @@ int timeout_register(uint64_t msec, void (*handler)(void* data), void* data) {
 
   priq_push(queue, task, task->timeout.tv_sec * 1000 + task->timeout.tv_nsec / 1000 / 1000);
   HASH_ADD_INT(tasks, id, task);
-  return 0;
+
+//  DPRINTF(DEBUG_PROCESSES, "REGISTER TIMEOUT %d %lld\n", task->id, msec);
+  return task->id;
 }
 
 int timeout_cancel(int timeout_id) {
   struct timeout_task *task;
   HASH_FIND_INT(tasks, &timeout_id, task);
   if (task == NULL) {
+//    DPRINTF(DEBUG_PROCESSES, "CANCEL TIMEOUT %d FAILED\n", timeout_id);
     return 0;
   }
   task->handler = NULL;
+//  DPRINTF(DEBUG_PROCESSES, "CANCEL TIMEOUT %d SUCCESS\n", timeout_id);
   return 1;
 }
 
@@ -78,6 +82,7 @@ int timeout_dispatch() {
 
     priq_pop(queue, NULL);
     if (task->handler) {
+//      DPRINTF(DEBUG_PROCESSES, "DISPATCH TIMEOUT %d\n", task->id);
       task->handler(task->data);
     }
     HASH_DEL(tasks, task);

@@ -10,7 +10,7 @@
 
 void timeout_init();
 
-int timeout_register(uint64_t msec, void (*handler)(void* data), void* data);
+int timeout_register(long long msec, void (*handler)(void* data), void* data);
 
 int timeout_cancel(int timeout_id);
 
